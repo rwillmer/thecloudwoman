@@ -1,4 +1,4 @@
-# See https://thecloudwoman.com/2017/06/docker-breaks-iptables-security-by-default/
+# See http://thecloudwoman.com/2017/06/docker-security-iptables/
 # Rachel Willmer rachel@hobthross.com
 
 [Unit]
