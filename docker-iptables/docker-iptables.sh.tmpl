@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+# Usage:
+# timeout 10 docker_iptables.sh
+#
+# Use the builtin shell timeout utility to prevent infinite loop (see below)
+
+# See https://thecloudwoman.com/2017/06/docker-breaks-iptables-security-by-default/
+# Rachel Willmer rachel@hobthross.com
+
+# original script idea from
+# https://rudijs.github.io/2015-07/docker-restricting-container-access-with-iptables/
+
+set -x  # for debugging
+
+if [ ! -x /usr/bin/docker ]; then
+    exit
+fi
+
+# Double check, wait for docker socket (upstart docker.conf already does this)
+while [ ! -e "/var/run/docker.sock" ]; do echo "Waiting for /var/run/docker.sock..."; sleep 1; done
+
+#
+# Wait for docker routing to finish
+#
+function check_docker_routing {
+    iptables -L DOCKER-INGRESS
+    return $?
+}
+while [ ! check_docker_routing ]; do echo "Waiting for docker routing"; sleep 1; done
+
+#
+# remove the docker-supplied rules which share everything
+#
+{% for port in private_tcp_ports %}
+rule='DOCKER-INGRESS -p tcp -m tcp --dport {{ port }} -j ACCEPT'
+iptables -C $rule
+if [ $? -eq 0 ]; then
+    iptables -D $rule
+fi
+{% endfor %}
+{% for port in private_udp_ports %}
+rule='DOCKER-INGRESS -p udp -m udp --dport {{ port }} -j ACCEPT'
+iptables -C $rule
+if [ $? -eq 0 ]; then
+    iptables -D $rule
+fi
+{% endfor %}
+
+#
+# add new rules to share only with private network
+#
+
+{% for port in private_tcp_ports %}
+rule='DOCKER-INGRESS -p tcp -m state --state RELATED,ESTABLISHED -m tcp --sport {{ port }} -j ACCEPT'
+iptables -C $rule
+if [ $? -eq 1 ]; then
+    iptables -I $rule
+fi
+{% endfor %}
+
+{% for address in addresses %}
+#
+# TCP for {{ address }}
+#
+{% for port in private_tcp_ports %}
+rule='DOCKER-INGRESS -p tcp -s {{ address }}/32 --dport {{ port }} -j ACCEPT'
+iptables -C $rule
+if [ $? -eq 1 ]; then
+    iptables -I $rule
+fi
+{% endfor %}
+#
+# UDP for {{ address }}
+#
+{% for port in private_udp_ports %}
+rule='DOCKER-INGRESS -p udp -s {{ address }}/32 --dport {{ port }} -j ACCEPT'
+iptables -C $rule
+if [ $? -eq 1 ]; then
+    iptables -I $rule
+fi
+{% endfor %}
+{% endfor %}
+
+# eof
